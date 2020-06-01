@@ -58,7 +58,7 @@ const PieChart: React.FC<Props> = ({ chartValues, labels, labelsColor, title }) 
         ],
       });
     });
-  }, [chartValues, data]);
+  }, []);
 
   return (
     <Card>

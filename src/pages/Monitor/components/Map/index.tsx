@@ -1,154 +1,151 @@
-import ReactDOM from 'react-dom';
-import React, { useRef, useEffect } from 'react';
-import { Paper } from '@material-ui/core';
+import React, { Component } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { withStyles } from '@material-ui/core/styles';
+import { Paper } from '@material-ui/core';
+import ReactDOM from 'react-dom';
 import { Popup } from './components';
-import { fetchFakeData } from '../../../../helpers';
-import { makeStyles, Theme, createStyles } from '@material-ui/core/styles';
 
-const useStyles = makeStyles((theme: Theme) =>
-  createStyles({
-    root: {
-      flexGrow: 1,
+mapboxgl.accessToken = 'pk.eyJ1Ijoia2luZ2tlbXN0eSIsImEiOiJja2E0ZWU3OHEwZDYyM2ZtdmVvcW9uc3oyIn0.7Epdd-Vt2qyCKqu0mWNhbw';
+
+const data = {
+  type: 'FeatureCollection',
+  features: [
+    {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [9.741752, 4.041193],
+      },
+      properties: { name: 'test' },
     },
-    map: {
-      position: 'relative',
-      overflow: 'hidden',
-      width: '100%',
-      height: '100hv',
-    },
-  }),
-);
+  ],
+} as any;
 
-type Props = {};
+const styles = {
+  root: {
+    flexGrow: 1,
+  },
+  mapContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    width: '100%',
+    height: '88vh',
+  },
+} as any;
 
-const Map: React.FC<Props> = () => {
-  const classes = useStyles();
+type Props = {
+  classes?: any;
+};
 
-  const mapContainerRef = useRef(null);
-  const popUpRef = useRef(new mapboxgl.Popup({ offset: 15 }));
+class MainMap extends Component<Props, any> {
+  mapContainer: HTMLElement | null | undefined;
+  map: mapboxgl.Map | undefined;
+  popUpRef: any | null | undefined;
 
-  // initialize map when component mounts
-  useEffect(() => {
+  componentDidMount() {
     const map = new mapboxgl.Map({
-      container: mapContainerRef.current!,
-      // See style options here: https://docs.mapbox.com/api/maps/#styles
-      style: 'https://cdn.traccar.com/map/basic.json',
+      container: this.mapContainer!,
+      style: 'mapbox://styles/mapbox/streets-v11',
       center: [0, 0],
       zoom: 1,
-      minZoom: 1,
-      maxZoom: 25,
     });
 
-    // add navigation control (zoom buttons)
-    map.addControl(new mapboxgl.NavigationControl(), 'top-left');
-    map.addControl(new mapboxgl.FullscreenControl({}), 'top-right');
-    map.addControl(new mapboxgl.ScaleControl({ maxWidth: 25 }), 'bottom-left');
+    this.popUpRef = React.createRef();
+    this.popUpRef.current = new mapboxgl.Popup({ offset: 15 });
 
-    map.on('load', () => {
-      Promise.all([
-        loadImage('background', 'images/background.svg', map),
-        loadImage('icon-marker', 'images/icon/truckMarker.svg', map),
-      ]).then(() => {
-        // add the data source for new a feature collection with no features
-        map.addSource('positions', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: [],
-          },
-        });
+    map.on('load', () => this.mapDidLoad(map));
 
-        map.addLayer({
-          id: 'device-background',
-          type: 'symbol',
-          source: 'positions',
-          layout: {
-            'icon-image': 'background',
-            'icon-allow-overlap': true,
-            'text-field': '{name}',
-            'text-allow-overlap': true,
-            'text-anchor': 'bottom',
-            'text-offset': [0, -2],
-            'text-font': ['Roboto Regular'],
-            'text-size': 12,
-          },
-          paint: {
-            'text-halo-color': 'transparent',
-            'text-halo-width': 1,
-          },
-        });
+    map.on('click', 'device-icon', (e: any) => {
+      var coordinates = e.features[0].geometry.coordinates.slice();
+      var properties = e.features[0].properties;
 
-        // now add the layer, and reference the data source above by name
-        map.addLayer({
-          id: 'device-icon',
-          source: 'positions',
-          type: 'symbol',
-          layout: {
-            // full list of icons here: https://labs.mapbox.com/maki-icons
-            'icon-image': 'icon-marker',
-            'icon-allow-overlap': true,
-            'icon-padding': 0,
-          },
-        });
-      });
+      // Ensure that if the map is zoomed out such that multiple
+      // copies of the feature are visible, the popup appears
+      // over the copy being pointed to.
+      while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
+        coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
+      }
+
+      const popupNode = document.createElement('div');
+      ReactDOM.render(<Popup properties={properties} />, popupNode);
+      // set popup on map
+      this.popUpRef.current.setLngLat(coordinates).setDOMContent(popupNode).addTo(map);
     });
 
-    map.on('moveend', async () => {
-      // get new center coordinates
-      const { lng, lat } = map.getCenter();
-      // fetch new data
-      const results: any = await fetchFakeData({ longitude: lng, latitude: lat });
-      // update "positions" source with new data
-      // all layers that consume the "positions" data source will be updated automatically
-      const source: mapboxgl.GeoJSONSource = map.getSource('positions') as mapboxgl.GeoJSONSource;
-      source.setData(results);
+    // Change the cursor to a pointer when the mouse is over the positions layer.
+    map.on('mouseenter', 'device-icon', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
 
-      const bounds: any = calculateBounds(results.data);
+    // Change it back to a pointer when it leaves.
 
-      map.fitBounds(bounds, {
+    map.on('mouseleave', 'device-icon', () => {
+      map.getCanvas().style.cursor = '';
+    });
+  }
+
+  componentWillUnmount() {
+    this.map!.remove();
+  }
+
+  loadImage(key: any, url: any) {
+    return new Promise((resolutionFunc) => {
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width * window.devicePixelRatio;
+        canvas.height = image.height * window.devicePixelRatio;
+        canvas.style.width = `${image.width}px`;
+        canvas.style.height = `${image.height}px`;
+        const context = canvas.getContext('2d');
+        context!.drawImage(image, 0, 0, canvas.width, canvas.height);
+        this.map!.addImage(key, context!.getImageData(0, 0, canvas.width, canvas.height), {
+          pixelRatio: window.devicePixelRatio,
+        });
+        resolutionFunc();
+      };
+      image.src = url;
+    });
+  }
+
+  mapDidLoad(map: mapboxgl.Map) {
+    this.map = map;
+
+    Promise.all([this.loadImage('icon-marker', 'images/icon/truckMarker.svg')]).then(() => {
+      this.imagesDidLoad();
+    });
+  }
+
+  imagesDidLoad() {
+    this.map!.addSource('positions', {
+      type: 'geojson',
+      data: data,
+    });
+
+    this.map!.addLayer({
+      id: 'device-icon',
+      type: 'symbol',
+      source: 'positions',
+      layout: {
+        'icon-image': 'icon-marker',
+        'icon-allow-overlap': true,
+      },
+    });
+
+    this.map!.addControl(new mapboxgl.NavigationControl(), 'top-left');
+    this.map!.addControl(new mapboxgl.FullscreenControl({}), 'top-right');
+    this.map!.addControl(new mapboxgl.ScaleControl({ maxWidth: 25 }), 'bottom-left');
+
+    const bounds: any = this.calculateBounds();
+    if (bounds) {
+      this.map!.fitBounds(bounds, {
         padding: 100,
         maxZoom: 9,
       });
-    });
+    }
+  }
 
-    // change cursor to pointer when user hovers over a clickable feature
-    map.on('mouseenter', 'positions', (e: any) => {
-      if (e.features.length) {
-        map.getCanvas().style.cursor = 'pointer';
-      }
-    });
-
-    // reset cursor to default when user is no longer hovering over a clickable feature
-    map.on('mouseleave', 'positions', () => {
-      map.getCanvas().style.cursor = '';
-    });
-
-    // add popup when user clicks a point
-    map.on('click', 'positions', (e: any) => {
-      if (e.features.length) {
-        let coordinates = e.features[0].geometry.coordinates.slice();
-        let properties = e.features[0].properties;
-
-        // Ensure that if the map is zoomed out such that multiple
-        // copies of the feature are visible, the popup appears
-        // over the copy being pointed to.
-        while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
-          coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
-        }
-        // create popup node
-        const popupNode = document.createElement('div');
-        ReactDOM.render(<Popup properties={properties} />, popupNode);
-        // set popup on map
-        popUpRef.current.setLngLat(coordinates).setDOMContent(popupNode).addTo(map);
-      }
-    });
-
-    // clean up on unmount
-    return () => map.remove();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const calculateBounds = (data: any) => {
+  calculateBounds() {
     if (data.features && data.features.length) {
       const first = data.features[0].geometry.coordinates;
       const bounds = [[...first], [...first]];
@@ -170,33 +167,16 @@ const Map: React.FC<Props> = () => {
     } else {
       return null;
     }
-  };
+  }
 
-  const loadImage = (key: any, url: any, map: mapboxgl.Map) => {
-    return new Promise((resolutionFunc) => {
-      const image = new Image();
-      image.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = image.width * window.devicePixelRatio;
-        canvas.height = image.height * window.devicePixelRatio;
-        canvas.style.width = `${image.width}px`;
-        canvas.style.height = `${image.height}px`;
-        const context = canvas.getContext('2d');
-        context!.drawImage(image, 0, 0, canvas.width, canvas.height);
-        map.addImage(key, context!.getImageData(0, 0, canvas.width, canvas.height), {
-          pixelRatio: window.devicePixelRatio,
-        });
-        resolutionFunc();
-      };
-      image.src = url;
-    });
-  };
+  render() {
+    const { classes } = this.props;
+    return (
+      <Paper className={classes.root} variant="outlined">
+        <div className={classes.mapContainer} ref={(el) => (this.mapContainer = el)} />
+      </Paper>
+    );
+  }
+}
 
-  return (
-    <Paper className={classes.root}>
-      <div className={classes.map} ref={mapContainerRef} />
-    </Paper>
-  );
-};
-
-export default Map;
+export default withStyles(styles)(MainMap);
