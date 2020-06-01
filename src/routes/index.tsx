@@ -2,16 +2,16 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { /* BrowserRouter, */ HashRouter } from 'react-router-dom';
 import ScrollToTop from '../components/core/ScrollTop';
 import MainRoutes from './MainRoutes';
 
 const Routes: React.FC = () => (
-  <BrowserRouter>
+  <HashRouter>
     <ScrollToTop>
       <MainRoutes />
     </ScrollToTop>
-  </BrowserRouter>
+  </HashRouter>
 );
 
 export default Routes;
